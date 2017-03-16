@@ -146,7 +146,7 @@ class FlexibleRecurrent(Layer):
         To reset the states of your model, call `.reset_states()` on either
         a specific layer, or on your entire model.
     '''
-    def __init__(self, weights=None,
+    def __init__(self, decoder_length=0, weights=None,
                  return_sequences=False, go_backwards=False, stateful=False,
                  unroll=False, consume_less='cpu',
                  input_dim=None, input_length=None, **kwargs):
@@ -157,13 +157,15 @@ class FlexibleRecurrent(Layer):
         self.unroll = unroll
         self.consume_less = consume_less
 
+        self.decoder_length = decoder_length
+
         self.supports_masking = True
         self.input_spec = [InputSpec(ndim=3)]
         self.input_dim = input_dim
         self.input_length = input_length
         if self.input_dim:
             kwargs['input_shape'] = (self.input_length, self.input_dim)
-        super(Recurrent, self).__init__(**kwargs)
+        super(FlexibleRecurrent, self).__init__(**kwargs)
 
     def get_output_shape_for(self, input_shape):
         if self.return_sequences:
@@ -223,6 +225,7 @@ class FlexibleRecurrent(Layer):
         constants = self.get_constants(x)
         preprocessed_input = self.preprocess_input(x)
 
+        """
         last_output, outputs, states = K.rnn(self.step, preprocessed_input,
                                              initial_states,
                                              go_backwards=self.go_backwards,
@@ -230,6 +233,17 @@ class FlexibleRecurrent(Layer):
                                              constants=constants,
                                              unroll=self.unroll,
                                              input_length=input_shape[1])
+        """
+        outputs = []
+        states = []
+        states_num = len(initial_states)
+        for i in range(self.decoder_length):
+            output, state = self.step(preprocessed_input, initial_states)
+            outputs.append(output)
+            for j in range(states_num):
+                states.append(state[j])
+        last_output = outputs[-1]
+
         if self.stateful:
             updates = []
             for i in range(len(states)):
@@ -283,7 +297,7 @@ class AttentionSimpleRNN(FlexibleRecurrent):
         - [A Theoretically Grounded Application of Dropout in Recurrent Neural Networks](http://arxiv.org/abs/1512.05287)
     '''
     def __init__(self, output_dim, h_dim, s_dim, attd_dim,
-                 encoder_list, encoder_shape,
+                 encoder_shape, 
                  init='glorot_uniform', inner_init='orthogonal',
                  activation='tanh',
                  W_regularizer=None, U_regularizer=None, b_regularizer=None,
@@ -294,7 +308,7 @@ class AttentionSimpleRNN(FlexibleRecurrent):
         self.s_dim = s_dim
         self.attd_dim = attd_dim
 
-        self.encoder_list = encoder_list
+        #self.encoder_list = encoder_list
         self.encoder_shape = encoder_shape
 
         self.dim_list = [self.output_dim, self.h_dim, self.encoder_shape[1], self.encoder_shape[0], self.s_dim]
@@ -447,18 +461,18 @@ class AttentionSimpleRNN(FlexibleRecurrent):
 
         tmp = K.dot(this_s,self.W) + self.b
         tmp = K.repeat(tmp,self.encoder_shape[0])
-        this_e = K.dot(self.activation(tmp + K.dot(self.encoder_list,self.V)), self.v)
-        tmp_w = K.exp(this_e)
-        sum_w = K.sum(tmp_w,axis=1,keepdims=True)
-        this_w = tmp_w / sum_w
+        #this_e = K.dot(self.activation(tmp + K.dot(self.encoder_list,self.V)), self.v)
+        this_e = K.dot(self.activation(tmp + K.dot(x,self.V)), self.v)
+        this_e = K.softmax(this_e)
 
-        this_c = K.batch_dot(this_w, self.encoder_list, axes=(1,1))
+        #this_c = K.batch_dot(this_e, self.encoder_list, axes=(1,1))
+        this_c = K.batch_dot(this_e, x, axes=(1,1))
 
         this_h = self.activation(K.dot(this_c * B_C, self.Wch) + K.dot(prev_h * B_H, self.Whh))
         #this_h = self.activation(K.dot(this_c, self.Wch) + K.dot(prev_h, self.Whh) + K.dot(this_s, self.Wsh))
         this_y = self.activation(K.dot(this_h * B_H, self.Why))
 
-        return prev_y, [this_y,this_h,this_c,this_e,this_s]
+        return this_y, [this_y,this_h,this_c,this_e,this_s]
 
         ###### attention impl ######
 
@@ -480,6 +494,6 @@ class AttentionSimpleRNN(FlexibleRecurrent):
                   'b_regularizer': self.b_regularizer.get_config() if self.b_regularizer else None,
                   'dropout_W': self.dropout_W,
                   'dropout_U': self.dropout_U}
-        base_config = super(SimpleRNN, self).get_config()
+        base_config = super(AttentionSimpleRNN, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
