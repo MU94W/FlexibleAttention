@@ -183,7 +183,10 @@ class RecurrentDecoder(Layer):
         if isinstance(input_shape, list):
             input_shape = input_shape[0]
         if self.return_sequences:
-            return (input_shape[0], input_shape[1], self.units)
+            ### add for attention ###
+            return (input_shape[0], self.max_time_steps, self.units)
+            ### add for attention ###
+            #return (input_shape[0], input_shape[1], self.units)
         else:
             return (input_shape[0], self.units)
 
