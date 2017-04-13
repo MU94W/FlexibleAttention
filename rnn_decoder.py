@@ -172,6 +172,9 @@ def rnn_decoder(step_function, inputs, initial_states,
             # Theano likes to make shape==1 dimensions in the initial states (outputs_info) broadcastable
             if len(initial_states) > 0:
                 initial_states[0] = T.unbroadcast(initial_states[0], 1)
+            
+            print("len initial states : %d" % len(initial_states))
+            print("initial state ndim : %d" % initial_states[0].ndim)
 
             results, _ = theano.scan(
                 _step,

@@ -529,12 +529,6 @@ class SimpleRNNDecoder(RecurrentDecoder):
         """
 
     def step(self, time, inputs, states):
-        """
-        h = K.dot(inputs[time], self.kernel)
-        if self.bias is not None:
-            h = K.bias_add(h, self.bias)
-        """
-
         prev_output = states
         ### attend impl ###
         e = K.dot(K.dot(inputs, self.attend_kernel_Wx) + K.dot(prev_output, self.attend_kernel_Wy) + self.attend_kernel_b, self.attend_kernel_v)
@@ -547,16 +541,6 @@ class SimpleRNNDecoder(RecurrentDecoder):
         output = K.bias_add(K.dot(context, self.kernel), self.bias) + K.dot(prev_output, self.recurrent_kernel)
         output = self.activation(output)
         ### attend impl ###
-
-        """
-        output = h + K.dot(prev_output, self.recurrent_kernel)
-        if self.activation is not None:
-            output = self.activation(output)
-
-        # Properly set learning phase on output tensor.
-        if 0 < self.dropout + self.recurrent_dropout:
-            output._uses_learning_phase = True
-        """
         return output, [output]
 
     def get_constants(self, inputs, training=None):
