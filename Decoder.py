@@ -282,7 +282,7 @@ class DecoderContainer(Layer):
                     input_dim = self.decoder_config[index-1].get('units')
                 else:
                     input_dim = self.decoder_config[-1].get('units')
-                name = '%d_' % index + cell_type
+                name = self.name + '_inner_cell_%d_' % index + cell_type
                 self.cells.append(addCell(self, cell_type, peak_dim, input_dim, name, item))
         else:
             config = self.decoder_config[0]
