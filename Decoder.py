@@ -8,10 +8,10 @@ import theano
 import theano.tensor as T
 import numpy as np
 
-def genIndication(nparray):
+def genIndication(nparray, pad_val=0):
     shape = nparray.shape
     pad_shape = (shape[0],1,) + shape[2:]
-    pad = np.zeros(shape=pad_shape)
+    pad = np.ones(shape=pad_shape) * pad_val
     out = np.concatenate((pad, nparray), axis=1)
     out = out[:,:-1]
     return out
