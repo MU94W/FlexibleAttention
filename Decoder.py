@@ -286,10 +286,19 @@ class DecoderContainer(Layer):
             self.cells.append(addCell(self, cell_type, peak_dim, input_dim, name, config))
 
     def __preprocessInputs(self, inputs):
-        print("Input tensors: %d." % len(inputs))
+        print("preprocess inputs Input tensors: %d." % len(inputs))
+        has_indi = False
+        if self.cell_num == len(inputs) - 1:
+            indication = inputs[-1]
+            ndim = indication.ndim
+            assert ndim >= 3, 'Indication should be at least 3D.'
+            axes = [1, 0] + list(range(2, ndim))
+            indication = indication.dimshuffle(axes)
+            inputs = inputs[:-1]
+            has_indi = True
         top_encoder_out = inputs[-1]
         ndim = top_encoder_out.ndim
-        assert ndim >= 3, 'Input should be at least 3D.'
+        assert ndim >= 3, 'top encoder output should be at least 3D.'
         axes = [1, 0] + list(range(2, ndim))
         top_encoder_out = top_encoder_out.dimshuffle(axes)
         peaks = []
@@ -300,7 +309,10 @@ class DecoderContainer(Layer):
             item = item.dimshuffle(axes)
             print("peak ndim : %d" % item[-1].ndim)
             peaks.append(item[-1])
-        return top_encoder_out, peaks
+        if has_indi:
+            return top_encoder_out, peaks, indication
+        else:
+            return top_encoder_out, peaks
     
     def __getInitialStates(self, peaks):
         initial_states = []
@@ -332,19 +344,29 @@ class DecoderContainer(Layer):
             states.extend(state)
         return [output] + states
     
-    def __rnn(self, peaks, initial_states):
-        initial_output = initial_states[-1]
-        initial_output = T.unbroadcast(initial_output, 1)
-        if len(initial_states) > 0:
-            initial_states[0] = T.unbroadcast(initial_states[0], 1)
-        print("before call scan peak ndim : %d" % peaks[0].ndim)
-        outputs, _ = theano.scan(self.__step,
-                                sequences=[T.arange(self.max_time_steps)],
-                                outputs_info=[initial_output] + initial_states,
-                                non_sequences=peaks,
-                                go_backwards=False)
-        ### WARNING !!! YOU CAN NOT PUT '[' and ']' around 'peaks' WHEN call THEANO.SCAN ###
-        # deal with Theano API inconsistency
+    def __rnn(self, peaks, initial_states, indication=None):
+        if indication is None:
+            initial_output = K.zeros_like(initial_states[-1])
+            initial_output = T.unbroadcast(initial_output, 1)
+            if len(initial_states) > 0:
+                initial_states[0] = T.unbroadcast(initial_states[0], 1)
+            print("before call scan peak ndim : %d" % peaks[0].ndim)
+            outputs, _ = theano.scan(self.__step,
+                                     sequences=[T.arange(self.max_time_steps)],
+                                     outputs_info=[initial_output] + initial_states,
+                                     non_sequences=peaks,
+                                     go_backwards=False)
+            ### WARNING !!! YOU CAN NOT PUT '[' and ']' around 'peaks' WHEN call THEANO.SCAN ###
+            # deal with Theano API inconsistency
+        else:
+            if len(initial_states) > 0:
+                initial_states[0] = T.unbroadcast(initial_states[0], 1)
+            outputs, _ = theano.scan(self.__step,
+                                     sequences=[T.arange(self.max_time_steps), indication],
+                                     outputs_info=[None] + initial_states,
+                                     non_sequences=peaks,
+                                     go_backwards=False)
+
         if isinstance(outputs, list):
             outputs = outputs[0]
         outputs = T.squeeze(outputs)
@@ -373,13 +395,18 @@ class DecoderContainer(Layer):
             return (input_shapes[0], self.max_time_steps, self.output_dim)
    
     def call(self, inputs):
-        top_encoder_out, peaks = self.__preprocessInputs(inputs)
-        print("call top_encoder_out ndim : %d" % top_encoder_out.ndim)
-        print("call len peaks : %d" % len(peaks))
-        print("call peak ndim : %d" % peaks[0].ndim)
-        initial_states = self.__getInitialStates(peaks)
-        print("after __getInit... call peak ndim : %d" % peaks[0].ndim)
-        print("initial states : %d" % len(initial_states))
-        print("initial state ndim : %d" % (initial_states[0].ndim))
-        outputs = self.__rnn(peaks, initial_states)
+        if self.cell_num == len(inputs):
+            top_encoder_out, peaks = self.__preprocessInputs(inputs)
+            print("call top_encoder_out ndim : %d" % top_encoder_out.ndim)
+            print("call len peaks : %d" % len(peaks))
+            print("call peak ndim : %d" % peaks[0].ndim)
+            initial_states = self.__getInitialStates(peaks)
+            print("after __getInit... call peak ndim : %d" % peaks[0].ndim)
+            print("initial states : %d" % len(initial_states))
+            print("initial state ndim : %d" % (initial_states[0].ndim))
+            outputs = self.__rnn(peaks, initial_states, None)
+        else:
+            top_encoder_out, peaks, indication = self.__preprocessInputs(inputs)
+            initial_states = self.__getInitialStates(peaks)
+            outputs = self.__rnn(peaks, initial_states, indication)
         return outputs
