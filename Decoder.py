@@ -212,7 +212,7 @@ class GRUCell(object):
             self.bias = None
         
         self.peak_initial = self.container.add_weight((self.peak_dim, self.units),
-                                                      name=self.name+'_peak_kernel',
+                                                      name=self.name+'_peak_initial',
                                                       initializer=self.peak_initializer,
                                                       regularizer=None,
                                                       constraint=None)
