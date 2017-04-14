@@ -8,6 +8,13 @@ import theano
 import theano.tensor as T
 import numpy as np
 
+def genIndication(nparray):
+    shape = nparray.shape
+    pad_shape = (shape[0],1,) + shape[2:]
+    pad = np.zeros(shape=pad_shape)
+    out = np.concatenate((pad, nparray), axis=1)
+    out = out[:,:-1]
+    return out
 
 def addCell(container, cell_type, peak_dim, input_dim, name, config):
     if cell_type == 'SimpleRNN':
