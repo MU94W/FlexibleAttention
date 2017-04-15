@@ -293,7 +293,6 @@ class DecoderContainer(Layer):
             self.cells.append(addCell(self, cell_type, peak_dim, input_dim, name, config))
 
     def __preprocessInputs(self, inputs):
-        print("preprocess inputs Input tensors: %d." % len(inputs))
         has_indi = False
         if self.cell_num == len(inputs) - 1:
             indication = inputs[-1]
@@ -314,7 +313,6 @@ class DecoderContainer(Layer):
             assert ndim >= 3, 'Input should be at least 3D.'
             axes = [1, 0] + list(range(2, ndim))
             item = item.dimshuffle(axes)
-            print("peak ndim : %d" % item[-1].ndim)
             peaks.append(item[-1])
         if has_indi:
             return top_encoder_out, peaks, indication
@@ -327,8 +325,6 @@ class DecoderContainer(Layer):
             cell = self.cells[index]
             peak = peaks[index]
             state = cell.getInitialState(peak)
-            print("states : %d" % len(state))
-            print("initial state ndim : %d" % state[0].ndim)
             initial_states.extend(state)
         return initial_states
 
@@ -357,7 +353,6 @@ class DecoderContainer(Layer):
             initial_output = T.unbroadcast(initial_output, 1)
             if len(initial_states) > 0:
                 initial_states[0] = T.unbroadcast(initial_states[0], 1)
-            print("before call scan peak ndim : %d" % peaks[0].ndim)
             outputs, _ = theano.scan(self.__step,
                                      sequences=[T.arange(self.max_time_steps)],
                                      outputs_info=[initial_output] + initial_states,
@@ -404,16 +399,16 @@ class DecoderContainer(Layer):
     def call(self, inputs):
         if self.cell_num == len(inputs):
             top_encoder_out, peaks = self.__preprocessInputs(inputs)
-            print("call top_encoder_out ndim : %d" % top_encoder_out.ndim)
-            print("call len peaks : %d" % len(peaks))
-            print("call peak ndim : %d" % peaks[0].ndim)
             initial_states = self.__getInitialStates(peaks)
-            print("after __getInit... call peak ndim : %d" % peaks[0].ndim)
-            print("initial states : %d" % len(initial_states))
-            print("initial state ndim : %d" % (initial_states[0].ndim))
             outputs = self.__rnn(peaks, initial_states, None)
         else:
             top_encoder_out, peaks, indication = self.__preprocessInputs(inputs)
             initial_states = self.__getInitialStates(peaks)
             outputs = self.__rnn(peaks, initial_states, indication)
         return outputs
+
+    def get_config(self):
+        config = {'max_time_steps': self.max_time_steps,
+                  'decoder_config': self.decoder_config}
+        base_config = super(DecoderContainer, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
