@@ -300,7 +300,7 @@ class ResGRUCell(object):
             self.bias_r = None
             self.bias_h = None
         
-        self.res_kernel = K.eye(size=(self.units, self.units), name=self.name+'_res_kernel')
+        self.res_kernel = K.eye(size=self.units, name=self.name+'_res_kernel')
 
     #def step(self, inputs, states):
     def step(self, x, peak, state):
