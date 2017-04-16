@@ -21,6 +21,8 @@ def addCell(container, cell_type, peak_dim, input_dim, name, config):
         return SimpleRNNCell(container, peak_dim, input_dim, name, config)
     elif cell_type == 'GRU':
         return GRUCell(container, peak_dim, input_dim, name, config)
+    elif cell_type == 'ResGRU':
+        return ResGRUCell(container, peak_dim, input_dim, name, config)
     else:
         raise NotImplementedError
 
