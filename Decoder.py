@@ -319,7 +319,7 @@ class ResGRUCell(object):
         #hh = self.activation(x_h + K.dot(r * h_tm1, self.recurrent_kernel_h))
         hh = self.activation(x_h + r * (K.dot(h_tm1, self.recurrent_kernel_h) + K.dot(peak, self.peak_kernel_h)))
         h = z * h_tm1 + (1 - z) * hh
-        res_out = h_tm1 + h
+        res_out = x + h
         return res_out, [res_out]
     
     def getInitialState(self, peak):
