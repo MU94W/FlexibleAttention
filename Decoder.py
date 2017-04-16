@@ -276,7 +276,7 @@ class ResGRUCell(object):
             self.bias = None
         
         self.peak_initial = self.container.add_weight((self.peak_dim, self.units),
-                                                      name=self.name+'_peak_kernel',
+                                                      name=self.name+'_peak_initial',
                                                       initializer=self.peak_initializer,
                                                       regularizer=None,
                                                       constraint=None)
@@ -317,7 +317,7 @@ class ResGRUCell(object):
         #hh = self.activation(x_h + K.dot(r * h_tm1, self.recurrent_kernel_h))
         hh = self.activation(x_h + r * (K.dot(h_tm1, self.recurrent_kernel_h) + K.dot(peak, self.peak_kernel_h)))
         h = z * h_tm1 + (1 - z) * hh
-        res_out = T.identity_like(x) + h
+        res_out = x + h
         return res_out, [res_out]
     
     def getInitialState(self, peak):
