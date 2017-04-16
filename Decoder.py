@@ -104,53 +104,6 @@ class SimpleRNNCell(object):
 class GRUCell(object):
     """Gated Recurrent Unit - Cho et al. 2014.
     # Arguments
-        units: Positive integer, dimensionality of the output space.
-        activation: Activation function to use
-            (see [activations](../activations.md)).
-            If you pass None, no activation is applied
-            (ie. "linear" activation: `a(x) = x`).
-        recurrent_activation: Activation function to use
-            for the recurrent step
-            (see [activations](../activations.md)).
-        use_bias: Boolean, whether the layer uses a bias vector.
-        kernel_initializer: Initializer for the `kernel` weights matrix,
-            used for the linear transformation of the inputs.
-            (see [initializers](../initializers.md)).
-        recurrent_initializer: Initializer for the `recurrent_kernel`
-            weights matrix,
-            used for the linear transformation of the recurrent state.
-            (see [initializers](../initializers.md)).
-        bias_initializer: Initializer for the bias vector
-            (see [initializers](../initializers.md)).
-        kernel_regularizer: Regularizer function applied to
-            the `kernel` weights matrix
-            (see [regularizer](../regularizers.md)).
-        recurrent_regularizer: Regularizer function applied to
-            the `recurrent_kernel` weights matrix
-            (see [regularizer](../regularizers.md)).
-        bias_regularizer: Regularizer function applied to the bias vector
-            (see [regularizer](../regularizers.md)).
-        activity_regularizer: Regularizer function applied to
-            the output of the layer (its "activation").
-            (see [regularizer](../regularizers.md)).
-        kernel_constraint: Constraint function applied to
-            the `kernel` weights matrix
-            (see [constraints](../constraints.md)).
-        recurrent_constraint: Constraint function applied to
-            the `recurrent_kernel` weights matrix
-            (see [constraints](../constraints.md)).
-        bias_constraint: Constraint function applied to the bias vector
-            (see [constraints](../constraints.md)).
-        dropout: Float between 0 and 1.
-            Fraction of the units to drop for
-            the linear transformation of the inputs.
-        recurrent_dropout: Float between 0 and 1.
-            Fraction of the units to drop for
-            the linear transformation of the recurrent state.
-    # References
-        - [On the Properties of Neural Machine Translation: Encoder-Decoder Approaches](https://arxiv.org/abs/1409.1259)
-        - [Empirical Evaluation of Gated Recurrent Neural Networks on Sequence Modeling](http://arxiv.org/abs/1412.3555v1)
-        - [A Theoretically Grounded Application of Dropout in Recurrent Neural Networks](http://arxiv.org/abs/1512.05287)
     """
     def __init__(self, container, peak_dim, input_dim, name, config):
         self.container = container
@@ -256,6 +209,123 @@ class GRUCell(object):
     def getInitialState(self, peak):
         state = K.dot(peak, self.peak_initial)
         return [state]
+
+class ResGRUCell(object):
+    """Gated Recurrent Unit - Cho et al. 2014.
+    # Arguments
+    """
+    def __init__(self, container, peak_dim, input_dim, name, config):
+        self.container = container
+        self.peak_dim = peak_dim
+        self.input_dim = input_dim
+        self.name = name
+        self.units = config.get('units')
+        assert self.units is not None, "Cell units MUST BE DEFINED!"
+
+        self.activation = activations.get(config.get('activation', 'tanh'))
+        self.recurrent_activation = activations.get(config.get('recurrent_activation', 'hard_sigmoid'))
+        self.use_bias = config.get('use_bias', True)
+
+        self.kernel_initializer = initializers.get(config.get('kernel_initializer', 'glorot_uniform'))
+        self.peak_initializer = initializers.get(config.get('peak_initializer', 'glorot_uniform'))
+        self.recurrent_initializer = initializers.get(config.get('recurrent_initializer', 'orthogonal'))
+        self.bias_initializer= initializers.get(config.get('bias_initializer', 'zeros'))
+
+        self.kernel_regularizer = regularizers.get(config.get('kernel_regularizer', None))
+        self.peak_regularizer = regularizers.get(config.get('peak_regularizer', None))
+        self.recurrent_regularizer = regularizers.get(config.get('recurrent_regularizer', None))
+        self.bias_regularizer = regularizers.get(config.get('bias_regularize', None))
+        self.activity_regularizer = regularizers.get(config.get('activity_regularizer', None))
+
+        self.kernel_constraint = constraints.get(config.get('kernel_constraint', None))
+        self.peak_constraint = constraints.get(config.get('peak_constraint', None))
+        self.recurrent_constraint = constraints.get(config.get('recurrent_constraint', None))
+        self.bias_constraint = constraints.get(config.get('bias_constraint', None))
+
+        self.dropout = min(1., max(0., config.get('dropout', 0.)))
+        self.peak_dropout = min(1., max(0., config.get('peak_dropout', 0.)))
+        self.recurrent_dropout = min(1., max(0., config.get('recurrent_dropout', 0.)))
+        # must be called
+        self.build()
+
+    def build(self):
+        self.kernel = self.container.add_weight((self.input_dim, self.units * 3),
+                                                name=self.name+'_kernel',
+                                                initializer=self.kernel_initializer,
+                                                regularizer=self.kernel_regularizer,
+                                                constraint=self.kernel_constraint)
+        self.recurrent_kernel = self.container.add_weight((self.units, self.units * 3),
+                                                          name=self.name+'_recurrent_kernel',
+                                                          initializer=self.recurrent_initializer,
+                                                          regularizer=self.recurrent_regularizer,
+                                                          constraint=self.recurrent_constraint)
+        self.peak_kernel = self.container.add_weight((self.peak_dim, self.units * 3),
+                                                     name=self.name+'_peak_kernel',
+                                                     initializer=self.peak_initializer,
+                                                     regularizer=self.peak_regularizer,
+                                                     constraint=self.peak_constraint)
+        if self.use_bias:
+            self.bias = self.container.add_weight((self.units * 3,),
+                                                  name=self.name+'_bias',
+                                                  initializer='zero',
+                                                  regularizer=self.bias_regularizer,
+                                                  constraint=self.bias_constraint)
+        else:
+            self.bias = None
+        
+        self.peak_initial = self.container.add_weight((self.peak_dim, self.units),
+                                                      name=self.name+'_peak_kernel',
+                                                      initializer=self.peak_initializer,
+                                                      regularizer=None,
+                                                      constraint=None)
+        
+        self.kernel_z = self.kernel[:, :self.units]
+        self.recurrent_kernel_z = self.recurrent_kernel[:, :self.units]
+        self.peak_kernel_z = self.peak_kernel[:, :self.units]
+        self.kernel_r = self.kernel[:, self.units: self.units * 2]
+        self.recurrent_kernel_r = self.recurrent_kernel[:, self.units: self.units * 2]
+        self.peak_kernel_r = self.peak_kernel[:, self.units: self.units * 2]
+        self.kernel_h = self.kernel[:, self.units * 2:]
+        self.recurrent_kernel_h = self.recurrent_kernel[:, self.units * 2:]
+        self.peak_kernel_h = self.peak_kernel[:, self.units * 2:]
+
+        if self.use_bias:
+            self.bias_z = self.bias[:self.units]
+            self.bias_r = self.bias[self.units: self.units * 2]
+            self.bias_h = self.bias[self.units * 2:]
+        else:
+            self.bias_z = None
+            self.bias_r = None
+            self.bias_h = None
+        
+        self.res_kernel = K.eye(size=(self.units, self.units), name=self.name+'_res_kernel')
+
+    #def step(self, inputs, states):
+    def step(self, x, peak, state):
+        h_tm1 = state # previous memory
+
+        x_z = K.dot(x, self.kernel_z)
+        x_r = K.dot(x, self.kernel_r)
+        x_h = K.dot(x, self.kernel_h)
+        if self.use_bias:
+            x_z = K.bias_add(x_z, self.bias_z)
+            x_r = K.bias_add(x_r, self.bias_r)
+            x_h = K.bias_add(x_h, self.bias_h)
+        z = self.recurrent_activation(x_z + K.dot(h_tm1, self.recurrent_kernel_z) + K.dot(peak, self.peak_kernel_z))
+        r = self.recurrent_activation(x_r + K.dot(h_tm1, self.recurrent_kernel_r) + K.dot(peak, self.peak_kernel_r))
+
+        #hh = self.activation(x_h + K.dot(r * h_tm1, self.recurrent_kernel_h))
+        hh = self.activation(x_h + r * (K.dot(h_tm1, self.recurrent_kernel_h) + K.dot(peak, self.peak_kernel_h)))
+        h = z * h_tm1 + (1 - z) * hh
+        res_out = K.dot(h_tm1, self.res_kernel) + h
+        return res_out, [res_out]
+    
+    def getInitialState(self, peak):
+        state = K.dot(peak, self.peak_initial)
+        return [state]
+
+
+
 
 class DecoderContainer(Layer):
     """Decoder Container class
