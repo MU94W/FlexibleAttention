@@ -300,7 +300,7 @@ class ResGRUCell(object):
             self.bias_r = None
             self.bias_h = None
         
-        self.res_kernel = K.eye(size=self.units, name=self.name+'_res_kernel')
+        self.res_kernel = K.ones((self.units,), name=self.name+'_res_kernel')
 
     #def step(self, inputs, states):
     def step(self, x, peak, state):
@@ -319,7 +319,7 @@ class ResGRUCell(object):
         #hh = self.activation(x_h + K.dot(r * h_tm1, self.recurrent_kernel_h))
         hh = self.activation(x_h + r * (K.dot(h_tm1, self.recurrent_kernel_h) + K.dot(peak, self.peak_kernel_h)))
         h = z * h_tm1 + (1 - z) * hh
-        res_out = x + h
+        res_out = self.res_kernel * x + h
         return res_out, [res_out]
     
     def getInitialState(self, peak):
