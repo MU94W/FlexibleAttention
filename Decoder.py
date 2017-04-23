@@ -26,9 +26,9 @@ def addCell(container, cell_type, peak_dim, input_dim, name, config):
     else:
         raise NotImplementedError
 
-def addAttention(container, type, input_dim, name, config):
+def addAttention(container, type, encoder_dim, decoder_dim, name, config):
     if type == 'SimpleAttention':
-        return SimpleAttentionModule(container, input_dim, name, config)
+        return SimpleAttentionModule(container, encoder_dim, decoder_dim, name, config)
     else:
         raise NotImplementedError
 
@@ -601,9 +601,10 @@ class SimpleAttentionModule(object):
     """SimpleAttentionModule
     # Arguments
     """
-    def __init__(self, container, input_dim, name, config):
+    def __init__(self, container, encoder_dim, decoder_dim, name, config):
         self.container = container
-        self.input_dim = input_dim
+        self.encoder_dim = encoder_dim
+        self.decoder_dim = decoder_dim
         self.name = name
         self.units = config.get('units')
         assert self.units is not None, "Cell units MUST BE DEFINED!"
@@ -615,12 +616,12 @@ class SimpleAttentionModule(object):
         self.build()
 
     def build(self):
-        self.attend_kernel_Wx = self.container.add_weight((self.input_dim, self.units),
+        self.attend_kernel_Wx = self.container.add_weight((self.encoder_dim, self.units),
                                                         name=self.name+'_attend_Wx',
                                                         initializer=self.kernel_initializer,
                                                         regularizer=self.kernel_regularizer,
                                                         constraint=self.kernel_constraint)
-        self.attend_kernel_Wy = self.container.add_weight((self.units, self.units),
+        self.attend_kernel_Wy = self.container.add_weight((self.decoder_dim, self.units),
                                                         name=self.name+'_attend_Wy',
                                                         initializer=self.kernel_initializer,
                                                         regularizer=self.kernel_regularizer,
@@ -772,8 +773,9 @@ class AttentionDecoderContainer(Layer):
             encoder_dim = input_shapes[0][-1]
         else:
             encoder_dim = input_shapes[-1]
+        decoder_dim = self.decoder_config[-1].get('units')
         attention_type = self.attention_config.get('type')
-        self.attention_module = addAttention(self, attention_type, encoder_dim, 'attention', self.attention_config)
+        self.attention_module = addAttention(self, attention_type, encoder_dim, decoder_dim, 'attention', self.attention_config)
 
     @classmethod
     def stack(cls, container, cell_obj):
