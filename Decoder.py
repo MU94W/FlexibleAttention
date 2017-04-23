@@ -26,6 +26,17 @@ def addCell(container, cell_type, peak_dim, input_dim, name, config):
     else:
         raise NotImplementedError
 
+def addAttention(container, type, input_dim, name, config):
+    if type == 'SimpleAttention':
+        return SimpleAttentionModule(container, input_dim, name, config)
+    else:
+        raise NotImplementedError
+
+def addAttCell(container, cell_type, input_dim, name, config):
+    if cell_type == 'GRU':
+        return AttGRUCell(container, input_dim, name, config)
+    else:
+        raise NotImplementedError
 
 class SimpleRNNCell(object):
     """
@@ -490,6 +501,149 @@ class DecoderContainer(Layer):
         base_config = super(DecoderContainer, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
+class AttGRUCell(object):
+    """Gated Recurrent Unit - Cho et al. 2014.
+    # Arguments
+    """
+    def __init__(self, container, input_dim, name, config):
+        self.container = container
+        self.input_dim = input_dim
+        self.name = name
+        self.units = config.get('units')
+        assert self.units is not None, "Cell units MUST BE DEFINED!"
+
+        self.activation = activations.get(config.get('activation', 'tanh'))
+        self.recurrent_activation = activations.get(config.get('recurrent_activation', 'hard_sigmoid'))
+        self.use_bias = config.get('use_bias', True)
+
+        self.kernel_initializer = initializers.get(config.get('kernel_initializer', 'glorot_uniform'))
+        self.recurrent_initializer = initializers.get(config.get('recurrent_initializer', 'orthogonal'))
+        self.bias_initializer= initializers.get(config.get('bias_initializer', 'zeros'))
+
+        self.kernel_regularizer = regularizers.get(config.get('kernel_regularizer', None))
+        self.recurrent_regularizer = regularizers.get(config.get('recurrent_regularizer', None))
+        self.bias_regularizer = regularizers.get(config.get('bias_regularize', None))
+        self.activity_regularizer = regularizers.get(config.get('activity_regularizer', None))
+
+        self.kernel_constraint = constraints.get(config.get('kernel_constraint', None))
+        self.recurrent_constraint = constraints.get(config.get('recurrent_constraint', None))
+        self.bias_constraint = constraints.get(config.get('bias_constraint', None))
+
+        self.dropout = min(1., max(0., config.get('dropout', 0.)))
+        self.recurrent_dropout = min(1., max(0., config.get('recurrent_dropout', 0.)))
+        # must be called
+        self.build()
+
+    def build(self):
+        self.kernel = self.container.add_weight((self.input_dim, self.units * 3),
+                                                name=self.name+'_kernel',
+                                                initializer=self.kernel_initializer,
+                                                regularizer=self.kernel_regularizer,
+                                                constraint=self.kernel_constraint)
+        self.recurrent_kernel = self.container.add_weight((self.units, self.units * 3),
+                                                          name=self.name+'_recurrent_kernel',
+                                                          initializer=self.recurrent_initializer,
+                                                          regularizer=self.recurrent_regularizer,
+                                                          constraint=self.recurrent_constraint)
+
+        if self.use_bias:
+            self.bias = self.container.add_weight((self.units * 3,),
+                                                  name=self.name+'_bias',
+                                                  initializer='zero',
+                                                  regularizer=self.bias_regularizer,
+                                                  constraint=self.bias_constraint)
+        else:
+            self.bias = None
+        
+        
+        self.kernel_z = self.kernel[:, :self.units]
+        self.recurrent_kernel_z = self.recurrent_kernel[:, :self.units]
+        self.kernel_r = self.kernel[:, self.units: self.units * 2]
+        self.recurrent_kernel_r = self.recurrent_kernel[:, self.units: self.units * 2]
+        self.kernel_h = self.kernel[:, self.units * 2:]
+        self.recurrent_kernel_h = self.recurrent_kernel[:, self.units * 2:]
+
+        if self.use_bias:
+            self.bias_z = self.bias[:self.units]
+            self.bias_r = self.bias[self.units: self.units * 2]
+            self.bias_h = self.bias[self.units * 2:]
+        else:
+            self.bias_z = None
+            self.bias_r = None
+            self.bias_h = None
+
+    def step(self, x, state):
+        h_tm1 = state # previous memory
+
+        x_z = K.dot(x, self.kernel_z)
+        x_r = K.dot(x, self.kernel_r)
+        x_h = K.dot(x, self.kernel_h)
+        if self.use_bias:
+            x_z = K.bias_add(x_z, self.bias_z)
+            x_r = K.bias_add(x_r, self.bias_r)
+            x_h = K.bias_add(x_h, self.bias_h)
+        z = self.recurrent_activation(x_z + K.dot(h_tm1, self.recurrent_kernel_z))
+        r = self.recurrent_activation(x_r + K.dot(h_tm1, self.recurrent_kernel_r))
+
+        hh = self.activation(x_h + r * (K.dot(h_tm1, self.recurrent_kernel_h)))
+        h = z * h_tm1 + (1 - z) * hh
+        return h, [h]
+    
+    def getInitialState(self, inputs):
+        # build an all-zero tensor of shape (samples, output_dim)
+        state = K.zeros_like(inputs)    # (samples, timesteps, input_dim)
+        state = K.sum(state, axis=(1,2))    # (samples,)
+        state = K.expand_dims(state)    # (samples, 1)
+        state = K.tile(state, [1, self.units])  # (samples, output_dim)
+        return [state]
+
+class SimpleAttentionModule(object):
+    """SimpleAttentionModule
+    # Arguments
+    """
+    def __init__(self, container, input_dim, name, config):
+        self.container = container
+        self.input_dim = input_dim
+        self.name = name
+        self.units = config.get('units')
+        assert self.units is not None, "Cell units MUST BE DEFINED!"
+
+        self.kernel_initializer = initializers.get(config.get('kernel_initializer', 'glorot_uniform'))
+        self.kernel_regularizer = regularizers.get(config.get('kernel_regularizer', None))
+        self.kernel_constraint = constraints.get(config.get('kernel_constraint', None))
+        # must be called
+        self.build()
+
+    def build(self):
+        self.attend_kernel_Wx = self.container.add_weight((self.input_dim, self.units),
+                                                        name=self.name+'_attend_Wx',
+                                                        initializer=self.kernel_initializer,
+                                                        regularizer=self.kernel_regularizer,
+                                                        constraint=self.kernel_constraint)
+        self.attend_kernel_Wy = self.container.add_weight((self.units, self.units),
+                                                        name=self.name+'_attend_Wy',
+                                                        initializer=self.kernel_initializer,
+                                                        regularizer=self.kernel_regularizer,
+                                                        constraint=self.kernel_constraint)
+        self.attend_kernel_b = self.container.add_weight((self.units,),
+                                                        name=self.name+'_attend_b',
+                                                        initializer=self.kernel_initializer,
+                                                        regularizer=self.kernel_regularizer,
+                                                        constraint=self.kernel_constraint)
+        self.attend_kernel_v = self.container.add_weight((self.units,),
+                                                        name=self.name+'_attend_v',
+                                                        initializer=self.kernel_initializer,
+                                                        regularizer=self.kernel_regularizer,
+                                                        constraint=self.kernel_constraint)
+
+    def step(self, top_encoder_out, output_tm1):
+        e = K.dot(K.dot(top_encoder_out, self.attend_kernel_Wx) + K.dot(output_tm1, self.attend_kernel_Wy) + self.attend_kernel_b, self.attend_kernel_v)
+        tmp_exp = K.exp(e)
+        tmp_sum = K.sum(tmp_exp, axis=(0,))
+        alpha = tmp_exp / tmp_sum
+        context = K.batch_dot(alpha.dimshuffle([1,0]), top_encoder_out.dimshuffle([1,0,2]), axes=1)
+        return context
+
 class AttentionDecoderContainer(Layer):
     """Attention Decoder Container class
     # Properties
@@ -497,101 +651,87 @@ class AttentionDecoderContainer(Layer):
         decoder_config: A list, which contains the configs of each recurrent layer stacked by the order in list.
                         Each config is a dictionary.
     """
-    def __init__(self, max_time_steps, decoder_config, **kwargs):
+    def __init__(self, max_time_steps, decoder_config, attention_config, **kwargs):
         self.max_time_steps = max_time_steps
         self.decoder_config = decoder_config
+        self.attention_config = attention_config
         self.output_dim = decoder_config[-1].get('units')
         self.cell_num = len(decoder_config)
         super(AttentionDecoderContainer, self).__init__(**kwargs)
 
     def __addCell(self, input_shapes):
         """
-        wait to comp
+        wait to finish
         """
         self.cells = []
         if isinstance(input_shapes, list):
-            for index, item in enumerate(self.decoder_config):
-                cell_type = item.get('type')
-                peak_dim = input_shapes[index][-1]
-                if index is not 0:
-                    input_dim = self.decoder_config[index-1].get('units')
-                else:
-                    input_dim = self.decoder_config[-1].get('units')
-                name = self.name + '_inner_cell_%d_' % index + cell_type
-                self.cells.append(addCell(self, cell_type, peak_dim, input_dim, name, item))
+            encoder_dim = input_shapes[0][-1]
         else:
-            config = self.decoder_config[0]
-            cell_type = config.get('type')
-            peak_dim = input_shapes[-1]
-            input_dim = config.get('units')
-            name = '0_' + cell_type
-            self.cells.append(addCell(self, cell_type, peak_dim, input_dim, name, config))
+            encoder_dim = input_shapes[-1]
+        for index, item in enumerate(self.decoder_config):
+            cell_type = item.get('type')
+            if index is not 0:
+                input_dim = self.decoder_config[index-1].get('units')
+            else:
+                input_dim = encoder_dim
+            name = self.name + '_inner_cell_%d_' % index + cell_type
+            self.cells.append(addAttCell(self, cell_type, input_dim, name, item))
 
     def __preprocessInputs(self, inputs):
         """
         wait to comp
         """
         has_indi = False
-        if self.cell_num == len(inputs) - 1:
-            indication = inputs[-1]
+        if len(inputs) == 2:
+            indication = inputs[1]
             ndim = indication.ndim
             assert ndim >= 3, 'Indication should be at least 3D.'
             axes = [1, 0] + list(range(2, ndim))
             indication = indication.dimshuffle(axes)
-            inputs = inputs[:-1]
             has_indi = True
-        top_encoder_out = inputs[-1]
+        top_encoder_out = inputs[0]
         ndim = top_encoder_out.ndim
         assert ndim >= 3, 'top encoder output should be at least 3D.'
         axes = [1, 0] + list(range(2, ndim))
         top_encoder_out = top_encoder_out.dimshuffle(axes)
-        peaks = []
-        for item in inputs:
-            ndim = item.ndim
-            assert ndim >= 3, 'Input should be at least 3D.'
-            axes = [1, 0] + list(range(2, ndim))
-            item = item.dimshuffle(axes)
-            peaks.append(item[-1])
         if has_indi:
-            return top_encoder_out, peaks, indication
+            return top_encoder_out, indication
         else:
-            return top_encoder_out, peaks
+            return top_encoder_out
     
-    def __getInitialStates(self, peaks):
+    def __getInitialStates(self, inputs):
         """
         wait to comp
         """
         initial_states = []
         for index in range(self.cell_num):
             cell = self.cells[index]
-            peak = peaks[index]
-            state = cell.getInitialState(peak)
+            state = cell.getInitialState(inputs)
             initial_states.extend(state)
         return initial_states
 
-    def __step(self, time, output_tm1, *states_tm1_and_peaks):
+    def __step(self, time, output_tm1, *states_tm1_and_top_encoder_out):
         """
         wait to comp
         """
-        states_tm1 = states_tm1_and_peaks[:self.cell_num]
-        peaks = states_tm1_and_peaks[self.cell_num:]
+        states_tm1 = states_tm1_and_top_encoder_out[:-1]
+        top_encoder_out = states_tm1_and_top_encoder_out[-1]
         states = []
         bottom_cell = self.cells[0]
-        peak = peaks[0]
         state_tm1 = states_tm1[0]
-        output, state = bottom_cell.step(output_tm1, peak, state_tm1)
+        context = self.attention_module.step(top_encoder_out, output_tm1)
+        output, state = bottom_cell.step(context, state_tm1)
         output_hm1 = output
         states.extend(state)
         for index in range(1, self.cell_num):
             cell = self.cells[index]
-            peak = peaks[index]
             state_tm1 = states_tm1[index]
-            output, state = cell.step(output_hm1, peak, state_tm1)
+            output, state = cell.step(output_hm1, state_tm1)
             output_hm1 = output
             states.extend(state)
         return [output] + states
 
-    def __rnn(self, peaks, initial_states, indication=None):
+    def __rnn(self, top_encoder_out, initial_states, indication=None):
         """
         wait to comp
         """
@@ -603,7 +743,7 @@ class AttentionDecoderContainer(Layer):
             outputs, _ = theano.scan(self.__step,
                                      sequences=[T.arange(self.max_time_steps)],
                                      outputs_info=[initial_output] + initial_states,
-                                     non_sequences=peaks,
+                                     non_sequences=top_encoder_out,
                                      go_backwards=False)
             ### WARNING !!! YOU CAN NOT PUT '[' and ']' around 'peaks' WHEN call THEANO.SCAN ###
             # deal with Theano API inconsistency
@@ -613,7 +753,7 @@ class AttentionDecoderContainer(Layer):
             outputs, _ = theano.scan(self.__step,
                                      sequences=[T.arange(self.max_time_steps), indication],
                                      outputs_info=[None] + initial_states,
-                                     non_sequences=peaks,
+                                     non_sequences=top_encoder_out,
                                      go_backwards=False)
 
         if isinstance(outputs, list):
@@ -628,6 +768,12 @@ class AttentionDecoderContainer(Layer):
         Assumption
         """
         self.__addCell(input_shapes)
+        if isinstance(input_shapes, list):
+            encoder_dim = input_shapes[0][-1]
+        else:
+            encoder_dim = input_shapes[-1]
+        attention_type = self.attention_config.get('type')
+        self.attention_module = addAttention(self, attention_type, encoder_dim, 'attention', self.attention_config)
 
     @classmethod
     def stack(cls, container, cell_obj):
@@ -638,7 +784,7 @@ class AttentionDecoderContainer(Layer):
 
     def compute_output_shape(self, input_shapes):
         """
-        wait to comp
+        wait to finish
         """
         if isinstance(input_shapes, list):
             return (input_shapes[0][0], self.max_time_steps, self.output_dim)
@@ -647,16 +793,18 @@ class AttentionDecoderContainer(Layer):
 
     def call(self, inputs):
         """
-        wait to comp
+        wait to finish
         """
-        if self.cell_num == len(inputs):
-            top_encoder_out, peaks = self.__preprocessInputs(inputs)
-            initial_states = self.__getInitialStates(peaks)
-            outputs = self.__rnn(peaks, initial_states, None)
+        if not isinstance(inputs, list):
+            inputs = [inputs]
+        if len(inputs) == 1:
+            top_encoder_out = self.__preprocessInputs(inputs)
+            initial_states = self.__getInitialStates(inputs[0])
+            outputs = self.__rnn(top_encoder_out, initial_states, None)
         else:
-            top_encoder_out, peaks, indication = self.__preprocessInputs(inputs)
-            initial_states = self.__getInitialStates(peaks)
-            outputs = self.__rnn(peaks, initial_states, indication)
+            top_encoder_out, indication = self.__preprocessInputs(inputs)
+            initial_states = self.__getInitialStates(inputs[0])
+            outputs = self.__rnn(top_encoder_out, initial_states, indication)
         return outputs
 
     def get_config(self):
@@ -664,7 +812,8 @@ class AttentionDecoderContainer(Layer):
         wait to comp
         """
         config = {'max_time_steps': self.max_time_steps,
-                  'decoder_config': self.decoder_config}
+                  'decoder_config': self.decoder_config,
+                  'attention_config': self.attention_config}
         base_config = super(AttentionDecoderContainer, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
