@@ -531,6 +531,8 @@ class AttGRUCell(object):
 
         self.dropout = min(1., max(0., config.get('dropout', 0.)))
         self.recurrent_dropout = min(1., max(0., config.get('recurrent_dropout', 0.)))
+
+        self.bottom = True if len(container.cells) == 0 else False
         # must be called
         self.build()
 
@@ -554,7 +556,6 @@ class AttGRUCell(object):
                                                   constraint=self.bias_constraint)
         else:
             self.bias = None
-        
         
         self.kernel_z = self.kernel[:, :self.units]
         self.recurrent_kernel_z = self.recurrent_kernel[:, :self.units]
@@ -674,7 +675,7 @@ class AttentionDecoderContainer(Layer):
             if index is not 0:
                 input_dim = self.decoder_config[index-1].get('units')
             else:
-                input_dim = encoder_dim
+                input_dim = item.get('units')
             name = self.name + '_inner_cell_%d_' % index + cell_type
             self.cells.append(addAttCell(self, cell_type, input_dim, name, item))
 
@@ -720,8 +721,10 @@ class AttentionDecoderContainer(Layer):
         states = []
         bottom_cell = self.cells[0]
         state_tm1 = states_tm1[0]
-        context = self.attention_module.step(top_encoder_out, output_tm1)
-        output, state = bottom_cell.step(context, state_tm1)
+        #context = self.attention_module.step(top_encoder_out, output_tm1)
+        context = self.attention_module.step(top_encoder_out, state_tm1)
+        combined_vec = K.dot(context, self.kernel_context) + K.dot(output_tm1, self.kernel_output)
+        output, state = bottom_cell.step(combined_vec, state_tm1)
         output_hm1 = output
         states.extend(state)
         for index in range(1, self.cell_num):
@@ -776,6 +779,17 @@ class AttentionDecoderContainer(Layer):
         decoder_dim = self.decoder_config[-1].get('units')
         attention_type = self.attention_config.get('type')
         self.attention_module = addAttention(self, attention_type, encoder_dim, decoder_dim, 'attention', self.attention_config)
+        bottom_dim = self.decoder_config[0].get('units')
+        self.kernel_context = self.add_weight((encoder_dim, bottom_dim),
+                                              name=self.name+'_kernel_context',
+                                              initializer='glorot_uniform',
+                                              regularizer=None,
+                                              constraint=None)
+        self.kernel_output = self.add_weight((decoder_dim, bottom_dim),
+                                             name=self.name+'_kernel_output',
+                                             initializer='glorot_uniform',
+                                             regularizer=None,
+                                             constraint=None)
 
     @classmethod
     def stack(cls, container, cell_obj):
