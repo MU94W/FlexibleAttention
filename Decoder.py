@@ -721,8 +721,8 @@ class AttentionDecoderContainer(Layer):
         states = []
         bottom_cell = self.cells[0]
         state_tm1 = states_tm1[0]
-        #context = self.attention_module.step(top_encoder_out, output_tm1)
-        context = self.attention_module.step(top_encoder_out, state_tm1)
+        context = self.attention_module.step(top_encoder_out, output_tm1)
+        #context = self.attention_module.step(top_encoder_out, state_tm1)
         combined_vec = K.dot(context, self.kernel_context) + K.dot(output_tm1, self.kernel_output)
         output, state = bottom_cell.step(combined_vec, state_tm1)
         output_hm1 = output
