@@ -672,16 +672,20 @@ class AttentionDecoderContainer(Layer):
             encoder_dim = input_shapes[-1]
         for index, item in enumerate(self.decoder_config):
             cell_type = item.get('type')
-            if index is not 0:
-                input_dim = self.decoder_config[index-1].get('units')
+            #if index is not 0:
+                #input_dim = self.decoder_config[index-1].get('units')
+            #else:
+                #input_dim = item.get('units')
+            if  index == 1:
+                input_dim = encoder_dim
             else:
-                input_dim = item.get('units')
+                input_dim = self.decoder_config[index-1].get('units')
             name = self.name + '_inner_cell_%d_' % index + cell_type
             self.cells.append(addAttCell(self, cell_type, input_dim, name, item))
 
     def __preprocessInputs(self, inputs):
         """
-        wait to comp
+        wait to finish
         """
         has_indi = False
         if len(inputs) == 2:
@@ -703,7 +707,7 @@ class AttentionDecoderContainer(Layer):
     
     def __getInitialStates(self, inputs):
         """
-        wait to comp
+        wait to finish
         """
         initial_states = []
         for index in range(self.cell_num):
@@ -714,19 +718,21 @@ class AttentionDecoderContainer(Layer):
 
     def __step(self, time, output_tm1, *states_tm1_and_top_encoder_out):
         """
-        wait to comp
+        wait to finish
         """
         states_tm1 = states_tm1_and_top_encoder_out[:-1]
         top_encoder_out = states_tm1_and_top_encoder_out[-1]
         states = []
         bottom_cell = self.cells[0]
         state_tm1 = states_tm1[0]
-        context = self.attention_module.step(top_encoder_out, output_tm1)
+        #context = self.attention_module.step(top_encoder_out, output_tm1)
         #context = self.attention_module.step(top_encoder_out, state_tm1)
-        combined_vec = K.dot(context, self.kernel_context) + K.dot(output_tm1, self.kernel_output)
-        output, state = bottom_cell.step(combined_vec, state_tm1)
-        output_hm1 = output
+        output, state = bottom_cell.step(output_tm1, state_tm1)
         states.extend(state)
+        context = self.attention_module.step(top_encoder_out, output)   # use the bottom cell's output(state) as input of the attention module
+        combined_vec = K.dot(context, self.kernel_context) + K.dot(output, self.kernel_output)  # combine the context and bottom cell's output
+        #output_hm1 = output
+        output_hm1 = combined_vec
         for index in range(1, self.cell_num):
             cell = self.cells[index]
             state_tm1 = states_tm1[index]
@@ -737,10 +743,10 @@ class AttentionDecoderContainer(Layer):
 
     def __rnn(self, top_encoder_out, initial_states, indication=None):
         """
-        wait to comp
+        wait to finish
         """
         if indication is None:
-            initial_output = K.zeros_like(initial_states[-1])
+            initial_output = (-1) * K.ones_like(initial_states[-1]) # <GO> label - (-1) vec
             initial_output = T.unbroadcast(initial_output, 1)
             if len(initial_states) > 0:
                 initial_states[0] = T.unbroadcast(initial_states[0], 1)
@@ -777,15 +783,17 @@ class AttentionDecoderContainer(Layer):
         else:
             encoder_dim = input_shapes[-1]
         decoder_dim = self.decoder_config[-1].get('units')
+        first_cell_dim = self.decoder_config[0].get('units')
         attention_type = self.attention_config.get('type')
-        self.attention_module = addAttention(self, attention_type, encoder_dim, decoder_dim, 'attention', self.attention_config)
-        bottom_dim = self.decoder_config[0].get('units')
-        self.kernel_context = self.add_weight((encoder_dim, bottom_dim),
+        self.attention_module = addAttention(self, attention_type, encoder_dim, first_cell_dim, 'attention', self.attention_config)
+        #bottom_dim = self.decoder_config[0].get('units')
+        #second_cell_dim = self.decoder_config[1].get('units')
+        self.kernel_context = self.add_weight((encoder_dim, encoder_dim),
                                               name=self.name+'_kernel_context',
                                               initializer='glorot_uniform',
                                               regularizer=None,
                                               constraint=None)
-        self.kernel_output = self.add_weight((decoder_dim, bottom_dim),
+        self.kernel_output = self.add_weight((first_cell_dim, encoder_dim),
                                              name=self.name+'_kernel_output',
                                              initializer='glorot_uniform',
                                              regularizer=None,
@@ -825,7 +833,7 @@ class AttentionDecoderContainer(Layer):
 
     def get_config(self):
         """
-        wait to comp
+        wait to finish
         """
         config = {'max_time_steps': self.max_time_steps,
                   'decoder_config': self.decoder_config,
