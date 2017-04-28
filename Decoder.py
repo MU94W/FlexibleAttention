@@ -653,7 +653,7 @@ class AttentionDecoderContainer(Layer):
         decoder_config: A list, which contains the configs of each recurrent layer stacked by the order in list.
                         Each config is a dictionary.
     """
-    def __init__(self, max_time_steps, decoder_config, attention_config, output_dim=0, **kwargs):
+    def __init__(self, max_time_steps, decoder_config, attention_config, **kwargs):
         self.max_time_steps = max_time_steps
         self.decoder_config = decoder_config
         self.attention_config = attention_config
@@ -744,7 +744,8 @@ class AttentionDecoderContainer(Layer):
         output, state = bottom_cell.step(output_tm1, context, bottom_cell_state_tm1)
 
         ### prepare return
-        states = [state]
+        states = []
+        states.extend(state)
         return [output] + states
         """
         states = []
