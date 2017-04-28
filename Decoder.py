@@ -653,17 +653,12 @@ class AttentionDecoderContainer(Layer):
         decoder_config: A list, which contains the configs of each recurrent layer stacked by the order in list.
                         Each config is a dictionary.
     """
-    def __init__(self, max_time_steps, decoder_config, attention_config, embed_dim=0, **kwargs):
+    def __init__(self, max_time_steps, decoder_config, attention_config, output_dim=0, **kwargs):
         self.max_time_steps = max_time_steps
         self.decoder_config = decoder_config
         self.attention_config = attention_config
         self.output_dim = decoder_config[-1].get('units')
         self.cell_num = len(decoder_config)
-        if embed_dim > 0:
-            self.use_embed = True
-            self.embed_dim = embed_dim
-        else:
-            self.use_embed = False
         super(AttentionDecoderContainer, self).__init__(**kwargs)
 
     def __addCell(self, input_shapes):
@@ -678,15 +673,12 @@ class AttentionDecoderContainer(Layer):
 
         ### context_dim
         peak_dim = encoder_dim
-        
+
         config = self.decoder_config[-1]
         cell_type = config.get('type')
         name = 'decoder_cell'
         ### input_dim
-        if self.use_embed:
-            input_dim = self.embed_dim
-        else:
-            input_dim = config.get('units')
+        input_dim = input_shapes[-1][-1]
         self.cells.append(addCell(self, cell_type, peak_dim, input_dim, name, config))
         """
         for index, item in enumerate(self.decoder_config):
@@ -743,20 +735,13 @@ class AttentionDecoderContainer(Layer):
         states_tm1 = states_tm1_and_top_encoder_out[:-1]
         top_encoder_out = states_tm1_and_top_encoder_out[-1]
 
-        ### embedding lookup
-        if self.use_embed:
-            embed_vec_tm1 = self.embed_lookup(output_tm1)
-
         ### context calculation
         bottom_cell_state_tm1 = states_tm1[0]
         context = self.attention_module.step(top_encoder_out, bottom_cell_state_tm1)
 
         ### update state
         bottom_cell = self.cells[0]
-        if self.use_embed:
-            output, state = bottom_cell.step(embed_vec_tm1, context, bottom_cell_state_tm1)
-        else:
-            output, state = bottom_cell.step(output_tm1, context, bottom_cell_state_tm1)
+        output, state = bottom_cell.step(output_tm1, context, bottom_cell_state_tm1)
 
         ### prepare return
         states = [state]
@@ -828,20 +813,7 @@ class AttentionDecoderContainer(Layer):
         first_cell_dim = self.decoder_config[0].get('units')
         attention_type = self.attention_config.get('type')
         self.attention_module = addAttention(self, attention_type, encoder_dim, first_cell_dim, 'attention', self.attention_config)
-        self.build_lookup()
     
-    def build_lookup(self):
-        output_dim = self.decoder_config[-1].get('units')
-        self.embed_matrix = self.add_weight((output_dim, self.embed_dim),
-                                            name=self.name + '_embed',
-                                            initializer=self.kernel_initializer,
-                                            regularizer=None,
-                                            constraint=None)
-    
-    def embed_lookup(self, y):
-        return K.dot(y, self.embed_matrix)
-
-
     @classmethod
     def stack(cls, container, cell_obj):
         """
