@@ -653,12 +653,17 @@ class AttentionDecoderContainer(Layer):
         decoder_config: A list, which contains the configs of each recurrent layer stacked by the order in list.
                         Each config is a dictionary.
     """
-    def __init__(self, max_time_steps, decoder_config, attention_config, **kwargs):
+    def __init__(self, max_time_steps, decoder_config, attention_config, embed_dim=0, **kwargs):
         self.max_time_steps = max_time_steps
         self.decoder_config = decoder_config
         self.attention_config = attention_config
         self.output_dim = decoder_config[-1].get('units')
         self.cell_num = len(decoder_config)
+        if embed_dim > 0:
+            self.use_embed = True
+            self.embed_dim = embed_dim
+        else:
+            self.use_embed = False
         super(AttentionDecoderContainer, self).__init__(**kwargs)
 
     def __addCell(self, input_shapes):
@@ -670,6 +675,20 @@ class AttentionDecoderContainer(Layer):
             encoder_dim = input_shapes[0][-1]
         else:
             encoder_dim = input_shapes[-1]
+
+        ### context_dim
+        peak_dim = encoder_dim
+        
+        config = self.decoder_config[-1]
+        cell_type = config.get('type')
+        name = 'decoder_cell'
+        ### input_dim
+        if self.use_embed:
+            input_dim = self.embed_dim
+        else:
+            input_dim = config.get('units')
+        self.cells.append(addCell(self, cell_type, peak_dim, input_dim, name, config))
+        """
         for index, item in enumerate(self.decoder_config):
             cell_type = item.get('type')
             #if index is not 0:
@@ -682,6 +701,7 @@ class AttentionDecoderContainer(Layer):
                 input_dim = self.decoder_config[index-1].get('units')
             name = self.name + '_inner_cell_%d_' % index + cell_type
             self.cells.append(addAttCell(self, cell_type, input_dim, name, item))
+        """
 
     def __preprocessInputs(self, inputs):
         """
@@ -693,13 +713,13 @@ class AttentionDecoderContainer(Layer):
             ndim = indication.ndim
             assert ndim >= 3, 'Indication should be at least 3D.'
             axes = [1, 0] + list(range(2, ndim))
-            indication = indication.dimshuffle(axes)
+            indication = indication.dimshuffle(axes)    # time major
             has_indi = True
         top_encoder_out = inputs[0]
         ndim = top_encoder_out.ndim
         assert ndim >= 3, 'top encoder output should be at least 3D.'
         axes = [1, 0] + list(range(2, ndim))
-        top_encoder_out = top_encoder_out.dimshuffle(axes)
+        top_encoder_out = top_encoder_out.dimshuffle(axes)  # time major
         if has_indi:
             return top_encoder_out, indication
         else:
@@ -722,6 +742,26 @@ class AttentionDecoderContainer(Layer):
         """
         states_tm1 = states_tm1_and_top_encoder_out[:-1]
         top_encoder_out = states_tm1_and_top_encoder_out[-1]
+
+        ### embedding lookup
+        if self.use_embed:
+            embed_vec_tm1 = self.embed_lookup(output_tm1)
+
+        ### context calculation
+        bottom_cell_state_tm1 = states_tm1[0]
+        context = self.attention_module.step(top_encoder_out, bottom_cell_state_tm1)
+
+        ### update state
+        bottom_cell = self.cells[0]
+        if self.use_embed:
+            output, state = bottom_cell.step(embed_vec_tm1, context, bottom_cell_state_tm1)
+        else:
+            output, state = bottom_cell.step(output_tm1, context, bottom_cell_state_tm1)
+
+        ### prepare return
+        states = [state]
+        return [output] + states
+        """
         states = []
         bottom_cell = self.cells[0]
         state_tm1 = states_tm1[0]
@@ -740,12 +780,14 @@ class AttentionDecoderContainer(Layer):
             output_hm1 = output
             states.extend(state)
         return [output] + states
+        """
 
     def __rnn(self, top_encoder_out, initial_states, indication=None):
         """
         wait to finish
         """
         if indication is None:
+            ### initial_output should be re-code, now just keep bug here
             initial_output = (-1) * K.ones_like(initial_states[-1]) # <GO> label - (-1) vec
             initial_output = T.unbroadcast(initial_output, 1)
             if len(initial_states) > 0:
@@ -786,18 +828,19 @@ class AttentionDecoderContainer(Layer):
         first_cell_dim = self.decoder_config[0].get('units')
         attention_type = self.attention_config.get('type')
         self.attention_module = addAttention(self, attention_type, encoder_dim, first_cell_dim, 'attention', self.attention_config)
-        #bottom_dim = self.decoder_config[0].get('units')
-        #second_cell_dim = self.decoder_config[1].get('units')
-        self.kernel_context = self.add_weight((encoder_dim, encoder_dim),
-                                              name=self.name+'_kernel_context',
-                                              initializer='glorot_uniform',
-                                              regularizer=None,
-                                              constraint=None)
-        self.kernel_output = self.add_weight((first_cell_dim, encoder_dim),
-                                             name=self.name+'_kernel_output',
-                                             initializer='glorot_uniform',
-                                             regularizer=None,
-                                             constraint=None)
+        self.build_lookup()
+    
+    def build_lookup(self):
+        output_dim = self.decoder_config[-1].get('units')
+        self.embed_matrix = self.add_weight((output_dim, self.embed_dim),
+                                            name=self.name + '_embed',
+                                            initializer=self.kernel_initializer,
+                                            regularizer=None,
+                                            constraint=None)
+    
+    def embed_lookup(self, y):
+        return K.dot(y, self.embed_matrix)
+
 
     @classmethod
     def stack(cls, container, cell_obj):
