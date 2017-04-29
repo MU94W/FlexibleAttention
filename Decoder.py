@@ -927,7 +927,7 @@ class AttentionDecoderContainer(Layer):
 
     def __step(self, time, output_tm1, *states_tm1_and_top_encoder_out):
         states_tm1 = states_tm1_and_top_encoder_out[:self.cell_num]
-        top_encoder_out = states_tm1_and_top_encoder_out[self.cell_num:]
+        top_encoder_out = states_tm1_and_top_encoder_out[-1]
         states = []
         bottom_cell = self.cells[0]
         state_tm1 = states_tm1[0]
