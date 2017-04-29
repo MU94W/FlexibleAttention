@@ -646,8 +646,219 @@ class SimpleAttentionModule(object):
         context = K.batch_dot(alpha.dimshuffle([1,0]), top_encoder_out.dimshuffle([1,0,2]), axes=1)
         return context
 
+# class AttentionDecoderContainer(Layer):
+#     """Attention Decoder Container class
+#     # Properties
+#         max_time_steps: Integer, which indicates the max length to decode.
+#         decoder_config: A list, which contains the configs of each recurrent layer stacked by the order in list.
+#                         Each config is a dictionary.
+#     """
+#     def __init__(self, max_time_steps, decoder_config, attention_config, **kwargs):
+#         self.max_time_steps = max_time_steps
+#         self.decoder_config = decoder_config
+#         self.attention_config = attention_config
+#         self.output_dim = decoder_config[-1].get('units')
+#         self.cell_num = len(decoder_config)
+#         super(AttentionDecoderContainer, self).__init__(**kwargs)
+
+#     def __addCell(self, input_shapes):
+#         """
+#         wait to finish
+#         """
+#         self.cells = []
+#         if isinstance(input_shapes, list):
+#             encoder_dim = input_shapes[0][-1]
+#         else:
+#             encoder_dim = input_shapes[-1]
+
+#         ### context_dim
+#         peak_dim = encoder_dim
+
+#         config = self.decoder_config[-1]
+#         cell_type = config.get('type')
+#         name = 'decoder_cell'
+#         ### input_dim
+#         input_dim = input_shapes[-1][-1]
+#         self.cells.append(addCell(self, cell_type, peak_dim, input_dim, name, config))
+#         """
+#         for index, item in enumerate(self.decoder_config):
+#             cell_type = item.get('type')
+#             #if index is not 0:
+#                 #input_dim = self.decoder_config[index-1].get('units')
+#             #else:
+#                 #input_dim = item.get('units')
+#             if  index == 1:
+#                 input_dim = encoder_dim
+#             else:
+#                 input_dim = self.decoder_config[index-1].get('units')
+#             name = self.name + '_inner_cell_%d_' % index + cell_type
+#             self.cells.append(addAttCell(self, cell_type, input_dim, name, item))
+#         """
+
+#     def __preprocessInputs(self, inputs):
+#         """
+#         wait to finish
+#         """
+#         has_indi = False
+#         if len(inputs) == 2:
+#             indication = inputs[1]
+#             ndim = indication.ndim
+#             assert ndim >= 3, 'Indication should be at least 3D.'
+#             axes = [1, 0] + list(range(2, ndim))
+#             indication = indication.dimshuffle(axes)    # time major
+#             has_indi = True
+#         top_encoder_out = inputs[0]
+#         ndim = top_encoder_out.ndim
+#         assert ndim >= 3, 'top encoder output should be at least 3D.'
+#         axes = [1, 0] + list(range(2, ndim))
+#         top_encoder_out = top_encoder_out.dimshuffle(axes)  # time major
+#         if has_indi:
+#             return top_encoder_out, indication
+#         else:
+#             return top_encoder_out
+    
+#     def __getInitialStates(self, inputs):
+#         """
+#         wait to finish
+#         """
+#         initial_states = []
+#         for index in range(self.cell_num):
+#             cell = self.cells[index]
+#             state = cell.getInitialState(inputs)
+#             initial_states.extend(state)
+#         return initial_states
+
+#     def __step(self, time, output_tm1, *states_tm1_and_top_encoder_out):
+#         """
+#         wait to finish
+#         """
+#         states_tm1 = states_tm1_and_top_encoder_out[:-1]
+#         top_encoder_out = states_tm1_and_top_encoder_out[-1]
+
+#         ### context calculation
+#         bottom_cell_state_tm1 = states_tm1[0]
+#         context = self.attention_module.step(top_encoder_out, bottom_cell_state_tm1)
+
+#         ### update state
+#         bottom_cell = self.cells[0]
+#         output, state = bottom_cell.step(output_tm1, context, bottom_cell_state_tm1)
+
+#         ### prepare return
+#         states = []
+#         states.extend(state)
+#         return [output] + states
+#         """
+#         states = []
+#         bottom_cell = self.cells[0]
+#         state_tm1 = states_tm1[0]
+#         #context = self.attention_module.step(top_encoder_out, output_tm1)
+#         #context = self.attention_module.step(top_encoder_out, state_tm1)
+#         output, state = bottom_cell.step(output_tm1, state_tm1)
+#         states.extend(state)
+#         context = self.attention_module.step(top_encoder_out, output)   # use the bottom cell's output(state) as input of the attention module
+#         combined_vec = K.dot(context, self.kernel_context) + K.dot(output, self.kernel_output)  # combine the context and bottom cell's output
+#         #output_hm1 = output
+#         output_hm1 = combined_vec
+#         for index in range(1, self.cell_num):
+#             cell = self.cells[index]
+#             state_tm1 = states_tm1[index]
+#             output, state = cell.step(output_hm1, state_tm1)
+#             output_hm1 = output
+#             states.extend(state)
+#         return [output] + states
+#         """
+
+#     def __rnn(self, top_encoder_out, initial_states, indication=None):
+#         """
+#         wait to finish
+#         """
+#         if indication is None:
+#             ### initial_output should be re-code, now just keep bug here
+#             initial_output = (-1) * K.ones_like(initial_states[-1]) # <GO> label - (-1) vec
+#             initial_output = T.unbroadcast(initial_output, 1)
+#             if len(initial_states) > 0:
+#                 initial_states[0] = T.unbroadcast(initial_states[0], 1)
+#             outputs, _ = theano.scan(self.__step,
+#                                      sequences=[T.arange(self.max_time_steps)],
+#                                      outputs_info=[initial_output] + initial_states,
+#                                      non_sequences=top_encoder_out,
+#                                      go_backwards=False)
+#             ### WARNING !!! YOU CAN NOT PUT '[' and ']' around 'peaks' WHEN call THEANO.SCAN ###
+#             # deal with Theano API inconsistency
+#         else:
+#             if len(initial_states) > 0:
+#                 initial_states[0] = T.unbroadcast(initial_states[0], 1)
+#             outputs, _ = theano.scan(self.__step,
+#                                      sequences=[T.arange(self.max_time_steps), indication],
+#                                      outputs_info=[None] + initial_states,
+#                                      non_sequences=top_encoder_out,
+#                                      go_backwards=False)
+
+#         if isinstance(outputs, list):
+#             outputs = outputs[0]
+#         outputs = T.squeeze(outputs)
+#         axes = [1, 0] + list(range(2, outputs.ndim))
+#         outputs = outputs.dimshuffle(axes)
+#         return outputs
+
+#     def build(self, input_shapes):
+#         """
+#         Assumption
+#         """
+#         self.__addCell(input_shapes)
+#         if isinstance(input_shapes, list):
+#             encoder_dim = input_shapes[0][-1]
+#         else:
+#             encoder_dim = input_shapes[-1]
+#         decoder_dim = self.decoder_config[-1].get('units')
+#         first_cell_dim = self.decoder_config[0].get('units')
+#         attention_type = self.attention_config.get('type')
+#         self.attention_module = addAttention(self, attention_type, encoder_dim, first_cell_dim, 'attention', self.attention_config)
+    
+#     @classmethod
+#     def stack(cls, container, cell_obj):
+#         """
+#         Sequentially add a cell_obj to the container
+#         """
+#         raise NotImplementedError
+
+#     def compute_output_shape(self, input_shapes):
+#         """
+#         wait to finish
+#         """
+#         if isinstance(input_shapes, list):
+#             return (input_shapes[0][0], self.max_time_steps, self.output_dim)
+#         else:
+#             return (input_shapes[0], self.max_time_steps, self.output_dim)
+
+#     def call(self, inputs):
+#         """
+#         wait to finish
+#         """
+#         if not isinstance(inputs, list):
+#             inputs = [inputs]
+#         if len(inputs) == 1:
+#             top_encoder_out = self.__preprocessInputs(inputs)
+#             initial_states = self.__getInitialStates(inputs[0])
+#             outputs = self.__rnn(top_encoder_out, initial_states, None)
+#         else:
+#             top_encoder_out, indication = self.__preprocessInputs(inputs)
+#             initial_states = self.__getInitialStates(inputs[0])
+#             outputs = self.__rnn(top_encoder_out, initial_states, indication)
+#         return outputs
+
+#     def get_config(self):
+#         """
+#         wait to finish
+#         """
+#         config = {'max_time_steps': self.max_time_steps,
+#                   'decoder_config': self.decoder_config,
+#                   'attention_config': self.attention_config}
+#         base_config = super(AttentionDecoderContainer, self).get_config()
+#         return dict(list(base_config.items()) + list(config.items()))
+
 class AttentionDecoderContainer(Layer):
-    """Attention Decoder Container class
+    """Decoder Container class
     # Properties
         max_time_steps: Integer, which indicates the max length to decode.
         decoder_config: A list, which contains the configs of each recurrent layer stacked by the order in list.
@@ -660,121 +871,81 @@ class AttentionDecoderContainer(Layer):
         self.output_dim = decoder_config[-1].get('units')
         self.cell_num = len(decoder_config)
         super(AttentionDecoderContainer, self).__init__(**kwargs)
-
+    
     def __addCell(self, input_shapes):
-        """
-        wait to finish
-        """
         self.cells = []
         if isinstance(input_shapes, list):
-            encoder_dim = input_shapes[0][-1]
-        else:
-            encoder_dim = input_shapes[-1]
-
-        ### context_dim
-        peak_dim = encoder_dim
-
-        config = self.decoder_config[-1]
-        cell_type = config.get('type')
-        name = 'decoder_cell'
-        ### input_dim
-        input_dim = input_shapes[-1][-1]
-        self.cells.append(addCell(self, cell_type, peak_dim, input_dim, name, config))
-        """
-        for index, item in enumerate(self.decoder_config):
-            cell_type = item.get('type')
-            #if index is not 0:
-                #input_dim = self.decoder_config[index-1].get('units')
-            #else:
-                #input_dim = item.get('units')
-            if  index == 1:
-                input_dim = encoder_dim
-            else:
+            peak_dim = input_shapes[-2][-1]
+            for index, item in enumerate(self.decoder_config):
+                cell_type = item.get('type')
                 input_dim = self.decoder_config[index-1].get('units')
-            name = self.name + '_inner_cell_%d_' % index + cell_type
-            self.cells.append(addAttCell(self, cell_type, input_dim, name, item))
-        """
+                name = self.name + '_inner_cell_%d_' % index + cell_type
+                self.cells.append(addCell(self, cell_type, peak_dim, input_dim, name, item))
+        else:
+            config = self.decoder_config[0]
+            cell_type = config.get('type')
+            peak_dim = input_shapes[-1]
+            input_dim = config.get('units')
+            name = '0_' + cell_type
+            self.cells.append(addCell(self, cell_type, peak_dim, input_dim, name, config))
 
     def __preprocessInputs(self, inputs):
-        """
-        wait to finish
-        """
         has_indi = False
-        if len(inputs) == 2:
-            indication = inputs[1]
+        if self.cell_num == len(inputs) - 1:
+            indication = inputs[-1]
             ndim = indication.ndim
             assert ndim >= 3, 'Indication should be at least 3D.'
             axes = [1, 0] + list(range(2, ndim))
-            indication = indication.dimshuffle(axes)    # time major
+            indication = indication.dimshuffle(axes)
+            inputs = inputs[:-1]
             has_indi = True
-        top_encoder_out = inputs[0]
+        top_encoder_out = inputs[-1]
         ndim = top_encoder_out.ndim
         assert ndim >= 3, 'top encoder output should be at least 3D.'
         axes = [1, 0] + list(range(2, ndim))
-        top_encoder_out = top_encoder_out.dimshuffle(axes)  # time major
+        top_encoder_out = top_encoder_out.dimshuffle(axes)
+        peaks = []
+        for item in inputs:
+            ndim = item.ndim
+            assert ndim >= 3, 'Input should be at least 3D.'
+            axes = [1, 0] + list(range(2, ndim))
+            item = item.dimshuffle(axes)
+            peaks.append(item[-1])
         if has_indi:
-            return top_encoder_out, indication
+            return top_encoder_out, peaks, indication
         else:
-            return top_encoder_out
+            return top_encoder_out, peaks
     
-    def __getInitialStates(self, inputs):
-        """
-        wait to finish
-        """
+    def __getInitialStates(self, peaks):
         initial_states = []
         for index in range(self.cell_num):
             cell = self.cells[index]
-            state = cell.getInitialState(inputs)
+            peak = peaks[index]
+            state = cell.getInitialState(peak)
             initial_states.extend(state)
         return initial_states
 
     def __step(self, time, output_tm1, *states_tm1_and_top_encoder_out):
-        """
-        wait to finish
-        """
-        states_tm1 = states_tm1_and_top_encoder_out[:-1]
-        top_encoder_out = states_tm1_and_top_encoder_out[-1]
-
-        ### context calculation
-        bottom_cell_state_tm1 = states_tm1[0]
-        context = self.attention_module.step(top_encoder_out, bottom_cell_state_tm1)
-
-        ### update state
-        bottom_cell = self.cells[0]
-        output, state = bottom_cell.step(output_tm1, context, bottom_cell_state_tm1)
-
-        ### prepare return
-        states = []
-        states.extend(state)
-        return [output] + states
-        """
+        states_tm1 = states_tm1_and_top_encoder_out[:self.cell_num]
+        top_encoder_out = states_tm1_and_top_encoder_out[self.cell_num:]
         states = []
         bottom_cell = self.cells[0]
         state_tm1 = states_tm1[0]
-        #context = self.attention_module.step(top_encoder_out, output_tm1)
-        #context = self.attention_module.step(top_encoder_out, state_tm1)
-        output, state = bottom_cell.step(output_tm1, state_tm1)
+        context = self.attention_module.step(top_encoder_out, state_tm1)
+        output, state = bottom_cell.step(output_tm1, context, state_tm1)
+        output_hm1 = output
         states.extend(state)
-        context = self.attention_module.step(top_encoder_out, output)   # use the bottom cell's output(state) as input of the attention module
-        combined_vec = K.dot(context, self.kernel_context) + K.dot(output, self.kernel_output)  # combine the context and bottom cell's output
-        #output_hm1 = output
-        output_hm1 = combined_vec
         for index in range(1, self.cell_num):
             cell = self.cells[index]
             state_tm1 = states_tm1[index]
-            output, state = cell.step(output_hm1, state_tm1)
+            output, state = cell.step(output_hm1, context, state_tm1)
             output_hm1 = output
             states.extend(state)
         return [output] + states
-        """
 
     def __rnn(self, top_encoder_out, initial_states, indication=None):
-        """
-        wait to finish
-        """
         if indication is None:
-            ### initial_output should be re-code, now just keep bug here
-            initial_output = (-1) * K.ones_like(initial_states[-1]) # <GO> label - (-1) vec
+            initial_output = K.zeros_like(initial_states[-1])
             initial_output = T.unbroadcast(initial_output, 1)
             if len(initial_states) > 0:
                 initial_states[0] = T.unbroadcast(initial_states[0], 1)
@@ -807,14 +978,14 @@ class AttentionDecoderContainer(Layer):
         """
         self.__addCell(input_shapes)
         if isinstance(input_shapes, list):
-            encoder_dim = input_shapes[0][-1]
+            encoder_dim = input_shapes[-2][-1]
         else:
             encoder_dim = input_shapes[-1]
-        decoder_dim = self.decoder_config[-1].get('units')
+        #decoder_dim = self.decoder_config[-1].get('units')
         first_cell_dim = self.decoder_config[0].get('units')
         attention_type = self.attention_config.get('type')
         self.attention_module = addAttention(self, attention_type, encoder_dim, first_cell_dim, 'attention', self.attention_config)
-    
+
     @classmethod
     def stack(cls, container, cell_obj):
         """
@@ -824,7 +995,7 @@ class AttentionDecoderContainer(Layer):
 
     def compute_output_shape(self, input_shapes):
         """
-        wait to finish
+        wait to comp
         """
         if isinstance(input_shapes, list):
             return (input_shapes[0][0], self.max_time_steps, self.output_dim)
@@ -833,23 +1004,21 @@ class AttentionDecoderContainer(Layer):
 
     def call(self, inputs):
         """
-        wait to finish
+        wait to comp
         """
-        if not isinstance(inputs, list):
-            inputs = [inputs]
-        if len(inputs) == 1:
-            top_encoder_out = self.__preprocessInputs(inputs)
-            initial_states = self.__getInitialStates(inputs[0])
+        if self.cell_num == len(inputs):
+            top_encoder_out, peaks = self.__preprocessInputs(inputs)
+            initial_states = self.__getInitialStates(peaks)
             outputs = self.__rnn(top_encoder_out, initial_states, None)
         else:
-            top_encoder_out, indication = self.__preprocessInputs(inputs)
-            initial_states = self.__getInitialStates(inputs[0])
+            top_encoder_out, peaks, indication = self.__preprocessInputs(inputs)
+            initial_states = self.__getInitialStates(peaks)
             outputs = self.__rnn(top_encoder_out, initial_states, indication)
         return outputs
 
     def get_config(self):
         """
-        wait to finish
+        wait to comp
         """
         config = {'max_time_steps': self.max_time_steps,
                   'decoder_config': self.decoder_config,
